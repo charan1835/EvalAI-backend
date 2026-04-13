@@ -1,10 +1,9 @@
 ---
-title: EvalAI
-emoji: 🤖
-colorFrom: indigo
-colorTo: violet
+title: EvalAi
+emoji: 🚀
+colorFrom: blue
+colorTo: blue
 sdk: docker
-pinned: false
 ---
 
 # 🧠 EvalAI Backend - NLP Engine
