@@ -1,3 +1,12 @@
+---
+title: EvalAI
+emoji: 🤖
+colorFrom: indigo
+colorTo: violet
+sdk: docker
+pinned: false
+---
+
 # 🧠 EvalAI Backend - NLP Engine
 
 This is the core intelligence engine for EvalAI, built with **FastAPI** and **Hugging Face Transformers**.
