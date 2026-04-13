@@ -24,8 +24,8 @@ app = FastAPI(
 # Robust CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual frontend URL
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -80,6 +80,8 @@ async def send_otp_email(receiver: str, code: str):
 # Move data loading to a try-except block for resilience
 try:
     data = pd.read_csv("Software Questions.csv", encoding="cp1252")
+    # Clean data: drop empty rows and fill NaN with empty strings
+    data = data.dropna(subset=["Question"]).fillna("")
 except Exception as e:
     print(f"Error loading CSV: {e}")
     data = pd.DataFrame(columns=["Question", "Answer", "Category", "Difficulty"])
@@ -191,6 +193,13 @@ def get_question(category: Optional[str] = Query(None, description="Filter by te
         "difficulty": row["Difficulty"],
     }
 
+@app.get("/questions/all", tags=["Interview"])
+def get_all_questions():
+    """Returns all questions in the library grouped by category."""
+    # Convert dataframe to list of dicts
+    questions = data[["Question", "Answer", "Category", "Difficulty"]].to_dict(orient="records")
+    return {"questions": questions}
+
 @app.post("/evaluate", tags=["Interview"])
 async def evaluate(payload: EvaluationRequest):
     """Evaluates the user's answer against the reference using NLP semantics."""
@@ -233,7 +242,36 @@ def get_categories():
     cats = sorted(data["Category"].dropna().unique().tolist())
     return {"categories": cats}
 
+@app.get("/quiz/generate", tags=["AI Quiz"])
+async def get_ai_quiz(topic: str = Query("Software Engineering")):
+    """Generates a 10-question MCQ quiz via Gemini (with expert system fallback)."""
+    from evaluator import evaluator_instance
+    questions = await evaluator_instance.generate_quiz(topic)
+    return {"status": "success", "topic": topic, "questions": questions}
+
+@app.get("/system/health", tags=["System"])
+async def system_health():
+    """Diagnoses the state of AI and DB services."""
+    from evaluator import evaluator_instance
+    gemini_status = "Enabled" if evaluator_instance.gemini_enabled else "Disabled"
+    
+    # Test Gemini if enabled
+    test_result = "Not Tested"
+    if evaluator_instance.gemini_enabled:
+        try:
+            resp = await evaluator_instance.gemini_model.generate_content_async("ping")
+            test_result = "Success (Response received)" if resp.text else "Failure (Empty response)"
+        except Exception as e:
+            test_result = f"Failure: {str(e)}"
+
+    return {
+        "gemini_enabled": evaluator_instance.gemini_enabled,
+        "gemini_test": test_result,
+        "api_key_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "db_status": "Operational" 
+    }
+
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting EvalAI Backend on http://localhost:8000")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)

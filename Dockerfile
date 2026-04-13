@@ -1,33 +1,35 @@
-# Use a sleek Python base (slim version is good for size)
-FROM python:3.11-slim
+# Use a slim Python 3.10 image to keep the container size manageable
+FROM python:3.10-slim
 
-# Set environment variables for model caching
-ENV TRANSFORMERS_CACHE=/app/model_cache
-ENV SENTENCE_TRANSFORMERS_HOME=/app/model_cache
-ENV PYTHONUNBUFFERED=1
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MODEL_NAME="all-MiniLM-L6-v2" \
+    HOME=/home/user
 
-# Set working directory
-WORKDIR /app
+# Create a non-root user (Hugging Face requirement for security)
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH="/home/user/.local/bin:${PATH}"
 
-# Install system utilities for NLP models
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR $HOME/app
 
-# Copy only requirements first for caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements and install dependencies
+# We do this first to leverage Docker cache
+COPY --chown=user requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Create cache directory and pre-download the model during BUILD time
-# This prevents downloading 80MB+ at runtime to the limited /tmp directory
-RUN mkdir -p /app/model_cache && \
-    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/model_cache')"
+# --- PRE-DOWNLOAD ML MODEL ---
+# This ensures the model is baked into the image and doesn't download on every start
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('$MODEL_NAME')"
 
-# Copy remaining application code
-COPY . .
+# Copy the rest of the application code
+COPY --chown=user . .
 
-# Expose the API port
-EXPOSE 8000
+# Expose port 7860 (Default for Hugging Face Spaces)
+EXPOSE 7860
 
-# Start Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Start the application
+# We use 0.0.0.0 to allow external traffic to the container
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

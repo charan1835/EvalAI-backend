@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# Git
+.git/
+.gitignore
+
+# Project specific
+*.csv
+!Software Questions.csv
+*.json
+!check_result.json
+!final_test.json
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
