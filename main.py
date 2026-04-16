@@ -40,8 +40,8 @@ else:
     db = client.evalai
 
 # Email Configuration
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+EMAIL_USER = os.getenv("EMAIL_HOST_USER") or os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_HOST_PASSWORD") or os.getenv("EMAIL_PASS")
 
 async def send_otp_email(receiver: str, code: str):
     """Sends a professional OTP email using Gmail SMTP (SSL)."""
@@ -132,11 +132,15 @@ async def request_otp(payload: OTPRequest):
     otp_code = str(random.randint(100000, 999999))
     
     # Store OTP in MongoDB with a timestamp
-    await db.verifications.update_one(
-        {"email": email},
-        {"$set": {"otp": otp_code, "timestamp": datetime.now()}},
-        upsert=True
-    )
+    try:
+        await db.verifications.update_one(
+            {"email": email},
+            {"$set": {"otp": otp_code, "timestamp": datetime.now()}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"❌ MongoDB OTP Store Error: {e}")
+        raise HTTPException(status_code=503, detail="Database sync failed")
     
     # Send the real email
     sent = await send_otp_email(email, otp_code)
@@ -155,13 +159,19 @@ async def verify_otp(payload: OTPVerify):
         raise HTTPException(status_code=503, detail="Database connection not available")
     
     email = payload.email.lower()
-    record = await db.verifications.find_one({"email": email})
-    
-    if not record or record["otp"] != payload.otp:
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-    
-    # Clear the OTP after successful verification
-    await db.verifications.delete_one({"email": email})
+    try:
+        record = await db.verifications.find_one({"email": email})
+        
+        if not record or record["otp"] != payload.otp:
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        
+        # Clear the OTP after successful verification
+        await db.verifications.delete_one({"email": email})
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ MongoDB Verify Error: {e}")
+        raise HTTPException(status_code=503, detail="Verification system error")
     
     # In a real app, you'd generate a JWT here
     return {
@@ -218,8 +228,12 @@ async def save_history(entry: HistoryEntry):
     if not entry_dict.get("date"):
         entry_dict["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    result = await db.history.insert_one(entry_dict)
-    return {"status": "success", "id": str(result.inserted_id)}
+    try:
+        result = await db.history.insert_one(entry_dict)
+        return {"status": "success", "id": str(result.inserted_id)}
+    except Exception as e:
+        print(f"❌ MongoDB Save History Error: {e}")
+        raise HTTPException(status_code=503, detail="Failed to save practice result")
 
 @app.get("/history", tags=["History"])
 async def get_history():
@@ -227,14 +241,19 @@ async def get_history():
     if db is None:
         return {"history": []}
     
-    history_cursor = db.history.find().sort("date", -1).limit(50)
-    history = await history_cursor.to_list(length=50)
-    
-    # Convert MongoDB _id to string for JSON serialization
-    for entry in history:
-        entry["_id"] = str(entry["_id"])
+    try:
+        history_cursor = db.history.find().sort("date", -1).limit(50)
+        history = await history_cursor.to_list(length=50)
         
-    return {"history": history}
+        # Convert MongoDB _id to string for JSON serialization
+        for entry in history:
+            entry["_id"] = str(entry["_id"])
+            
+        return {"history": history}
+    except Exception as e:
+        print(f"❌ MongoDB Fetch History Error: {e}")
+        # Return empty list instead of failing if background history fetch fails
+        return {"history": [], "error": "Could not connect to database"}
 
 @app.get("/categories", tags=["Interview"])
 def get_categories():
